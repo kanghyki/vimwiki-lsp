@@ -50,38 +50,47 @@ function parseFrontmatter(content) {
     return frontmatter;
 }
 
-// 파일 경로에서 wiki 파일 정보 가져오기
-function getWikiFileInfo(filePath) {
+// hover용 파일 정보 가져오기 (상대 경로 처리)
+function getWikiFileInfoForHover(wikiLink, currentDir) {
     try {
-        // 먼저 정확한 경로로 시도
-        let fullPath = path.join(wikiRoot, filePath + ".md");
+        let targetPath;
 
-        if (!fs.existsSync(fullPath)) {
-            // 파일이 없으면 전체 wiki 디렉토리에서 검색
-            const foundPath = findExactFile(filePath);
+        // 상대 경로인지 확인
+        if (wikiLink.startsWith("../") || wikiLink.startsWith("./")) {
+            // 상대 경로: 현재 디렉터리 기준으로 해석
+            targetPath = path.resolve(currentDir, wikiLink + ".md");
+        } else {
+            // 절대 경로: wikiRoot 기준으로 해석
+            targetPath = path.join(wikiRoot, wikiLink + ".md");
+        }
+
+        // 파일 존재 확인
+        if (!fs.existsSync(targetPath)) {
+            // 파일이 없으면 전체 검색
+            const foundPath = findExactFile(wikiLink);
             if (foundPath) {
-                fullPath = foundPath;
+                targetPath = foundPath;
             } else {
-                console.log(`File not found: ${filePath}`);
+                console.log(`File not found: ${wikiLink}`);
                 return null;
             }
         }
 
-        const content = fs.readFileSync(fullPath, "utf-8");
+        const content = fs.readFileSync(targetPath, "utf-8");
         const frontmatter = parseFrontmatter(content);
 
         if (!frontmatter) {
-            return { title: filePath, summary: "No frontmatter found" };
+            return { title: wikiLink, summary: "No frontmatter found" };
         }
 
         return {
-            title: frontmatter.title || filePath,
+            title: frontmatter.title || wikiLink,
             summary: frontmatter.summary || "No summary available",
             date: frontmatter.date,
             updated: frontmatter.updated,
         };
     } catch (error) {
-        console.error(`Error reading file ${filePath}:`, error);
+        console.error(`Error reading file for hover ${wikiLink}:`, error);
         return null;
     }
 }
@@ -138,50 +147,64 @@ function extractWikiLink(text, position) {
 
 // hover 이벤트 처리
 connection.onHover(({ textDocument, position }) => {
-    const doc = documents.get(textDocument.uri);
-    if (!doc) return null;
+    try {
+        const doc = documents.get(textDocument.uri);
+        if (!doc) return null;
 
-    const lines = doc.getText().split("\n");
-    const line = lines[position.line];
+        const lines = doc.getText().split("\n");
+        const line = lines[position.line];
 
-    // 현재 라인에서 [[]] 패턴 찾기
-    const wikiLink = extractWikiLink(line, position.character);
+        // 현재 라인에서 [[]] 패턴 찾기
+        const wikiLink = extractWikiLink(line, position.character);
 
-    if (!wikiLink) return null;
+        if (!wikiLink) return null;
 
-    // 파일 정보 가져오기
-    const fileInfo = getWikiFileInfo(wikiLink);
+        // 현재 문서의 디렉터리 경로 계산
+        const currentDocPath = textDocument.uri.replace("file://", "");
+        const currentDir = path.dirname(currentDocPath);
 
-    if (!fileInfo) {
+        // 파일 정보 가져오기 (상대 경로 고려)
+        const fileInfo = getWikiFileInfoForHover(wikiLink, currentDir);
+
+        if (!fileInfo) {
+            return {
+                contents: {
+                    kind: MarkupKind.Markdown,
+                    value: `**${wikiLink}**\n\n*File not found*`,
+                },
+            };
+        }
+
+        // hover 내용 구성
+        let hoverContent = `**${fileInfo.title}**\n\n`;
+
+        if (fileInfo.summary) {
+            hoverContent += `${fileInfo.summary}\n\n`;
+        }
+
+        if (fileInfo.date) {
+            hoverContent += `📅 Created: ${fileInfo.date}\n`;
+        }
+
+        if (fileInfo.updated) {
+            hoverContent += `🔄 Updated: ${fileInfo.updated}\n`;
+        }
+
         return {
             contents: {
                 kind: MarkupKind.Markdown,
-                value: `**${wikiLink}**\n\n*File not found*`,
+                value: hoverContent,
+            },
+        };
+    } catch (error) {
+        console.error("Hover error:", error);
+        return {
+            contents: {
+                kind: MarkupKind.Markdown,
+                value: `**Error**\n\nFailed to load file information`,
             },
         };
     }
-
-    // hover 내용 구성
-    let hoverContent = `**${fileInfo.title}**\n\n`;
-
-    if (fileInfo.summary) {
-        hoverContent += `${fileInfo.summary}\n\n`;
-    }
-
-    if (fileInfo.date) {
-        hoverContent += `📅 Created: ${fileInfo.date}\n`;
-    }
-
-    if (fileInfo.updated) {
-        hoverContent += `🔄 Updated: ${fileInfo.updated}\n`;
-    }
-
-    return {
-        contents: {
-            kind: MarkupKind.Markdown,
-            value: hoverContent,
-        },
-    };
 });
 
 function findMatchingFiles(prefix, currentDocumentUri) {
@@ -213,10 +236,14 @@ function findMatchingFiles(prefix, currentDocumentUri) {
                     // 파일의 frontmatter 정보 읽기
                     const fileInfo = getFileInfoForCompletion(fullPath);
 
+                    // 디렉터리 정보 생성
+                    const dirName = path.dirname(relative);
+                    const displayDir = dirName === "." ? "root" : dirName;
+
                     results.push({
                         label: relativePath,
                         kind: CompletionItemKind.File,
-                        detail: fileInfo.title || relative,
+                        detail: displayDir, // 디렉터리만 간단히 표시
                         documentation: {
                             kind: MarkupKind.Markdown,
                             value: fileInfo.summary
