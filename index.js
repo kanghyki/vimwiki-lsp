@@ -10,12 +10,6 @@ const { TextDocument } = require("vscode-languageserver-textdocument");
 const fs = require("fs");
 const path = require("path");
 
-const logFile = "/tmp/wiki-lsp.log";
-function log(...args) {
-    const msg = `[${new Date().toISOString()}] ${args.map(String).join(" ")}\n`;
-    fs.appendFileSync(logFile, msg);
-}
-
 const connection = createConnection(process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 let wikiRoot = "";
@@ -190,8 +184,13 @@ connection.onHover(({ textDocument, position }) => {
     };
 });
 
-function findMatchingFiles(prefix) {
+function findMatchingFiles(prefix, currentDocumentUri) {
     const results = [];
+
+    // 현재 문서의 디렉토리 경로 계산
+    const currentDocPath = currentDocumentUri.replace("file://", "");
+    const currentDir = path.dirname(currentDocPath);
+
     function walk(dir) {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -202,11 +201,34 @@ function findMatchingFiles(prefix) {
                 const relative = path
                     .relative(wikiRoot, fullPath)
                     .replace(/\.md$/, "");
+
                 if (relative.toLowerCase().includes(prefix.toLowerCase())) {
+                    // 현재 파일에서 대상 파일로의 상대 경로 계산
+                    const targetPath = path.join(wikiRoot, relative + ".md");
+                    const relativePath = path
+                        .relative(currentDir, targetPath)
+                        .replace(/\.md$/, "")
+                        .replace(/\\/g, "/"); // Windows 경로 구분자를 슬래시로 변경
+
+                    // 파일의 frontmatter 정보 읽기
+                    const fileInfo = getFileInfoForCompletion(fullPath);
+
                     results.push({
-                        label: relative,
+                        label: relativePath,
                         kind: CompletionItemKind.File,
-                        detail: "Wiki file",
+                        detail: fileInfo.title || relative,
+                        documentation: {
+                            kind: MarkupKind.Markdown,
+                            value: fileInfo.summary
+                                ? `**${fileInfo.title || relative}**\n\n${
+                                      fileInfo.summary
+                                  }`
+                                : `**${fileInfo.title || relative}**`,
+                        },
+                        // 정렬을 위한 sortText (옵션)
+                        sortText: relativePath.toLowerCase(),
+                        // 실제 삽입될 텍스트
+                        insertText: relativePath,
                     });
                 }
             }
@@ -214,6 +236,26 @@ function findMatchingFiles(prefix) {
     }
     walk(wikiRoot);
     return results;
+}
+
+// 자동완성용 파일 정보 가져오기 (성능 최적화)
+function getFileInfoForCompletion(fullPath) {
+    try {
+        const content = fs.readFileSync(fullPath, "utf-8");
+        const frontmatter = parseFrontmatter(content);
+
+        if (!frontmatter) {
+            return { title: null, summary: null };
+        }
+
+        return {
+            title: frontmatter.title || null,
+            summary: frontmatter.summary || null,
+        };
+    } catch (error) {
+        console.error(`Error reading file for completion ${fullPath}:`, error);
+        return { title: null, summary: null };
+    }
 }
 
 connection.onCompletion(async ({ textDocument, position }) => {
@@ -227,7 +269,8 @@ connection.onCompletion(async ({ textDocument, position }) => {
 
     if (match) {
         const query = match[1];
-        return findMatchingFiles(query);
+        // 현재 문서의 URI를 전달
+        return findMatchingFiles(query, textDocument.uri);
     }
     return [];
 });
