@@ -9,6 +9,7 @@ const {
 const { TextDocument } = require("vscode-languageserver-textdocument");
 const fs = require("fs");
 const path = require("path");
+
 const logFile = "/tmp/wiki-lsp.log";
 function log(...args) {
     const msg = `[${new Date().toISOString()}] ${args.map(String).join(" ")}\n`;
@@ -58,10 +59,18 @@ function parseFrontmatter(content) {
 // 파일 경로에서 wiki 파일 정보 가져오기
 function getWikiFileInfo(filePath) {
     try {
-        const fullPath = path.join(wikiRoot, filePath + ".md");
+        // 먼저 정확한 경로로 시도
+        let fullPath = path.join(wikiRoot, filePath + ".md");
 
         if (!fs.existsSync(fullPath)) {
-            return null;
+            // 파일이 없으면 전체 wiki 디렉토리에서 검색
+            const foundPath = findExactFile(filePath);
+            if (foundPath) {
+                fullPath = foundPath;
+            } else {
+                console.log(`File not found: ${filePath}`);
+                return null;
+            }
         }
 
         const content = fs.readFileSync(fullPath, "utf-8");
@@ -83,6 +92,39 @@ function getWikiFileInfo(filePath) {
     }
 }
 
+// 파일을 정확히 찾기 위한 헬퍼 함수
+function findExactFile(targetPath) {
+    function walk(dir) {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const result = walk(fullPath);
+                    if (result) return result;
+                } else if (entry.isFile() && entry.name.endsWith(".md")) {
+                    const relative = path
+                        .relative(wikiRoot, fullPath)
+                        .replace(/\.md$/, "");
+                    // 정확한 매치 또는 파일명만 매치
+                    if (
+                        relative === targetPath ||
+                        path.basename(relative) === targetPath ||
+                        relative.toLowerCase() === targetPath.toLowerCase()
+                    ) {
+                        return fullPath;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error walking directory ${dir}:`, error);
+        }
+        return null;
+    }
+
+    return walk(wikiRoot);
+}
+
 // [[]] 패턴에서 파일 경로 추출
 function extractWikiLink(text, position) {
     const regex = /\[\[([^\]]+)\]\]/g;
@@ -102,7 +144,6 @@ function extractWikiLink(text, position) {
 
 // hover 이벤트 처리
 connection.onHover(({ textDocument, position }) => {
-    log("hover");
     const doc = documents.get(textDocument.uri);
     if (!doc) return null;
 
@@ -140,7 +181,6 @@ connection.onHover(({ textDocument, position }) => {
     if (fileInfo.updated) {
         hoverContent += `🔄 Updated: ${fileInfo.updated}\n`;
     }
-    log(hoverContent);
 
     return {
         contents: {
