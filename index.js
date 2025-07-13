@@ -222,7 +222,6 @@ connection.onHover(({ textDocument, position }) => {
 
 function findMatchingFiles(prefix, currentDocumentUri) {
     const results = [];
-
     // 현재 문서의 디렉토리 경로 계산
     const currentDocPath = currentDocumentUri.replace("file://", "");
     const currentDir = path.dirname(currentDocPath);
@@ -237,7 +236,6 @@ function findMatchingFiles(prefix, currentDocumentUri) {
                 const relative = path
                     .relative(wikiRoot, fullPath)
                     .replace(/\.md$/, "");
-
                 if (relative.toLowerCase().includes(prefix.toLowerCase())) {
                     // 현재 파일에서 대상 파일로의 상대 경로 계산
                     const targetPath = path.join(wikiRoot, relative + ".md");
@@ -253,11 +251,14 @@ function findMatchingFiles(prefix, currentDocumentUri) {
                     const dirName = path.dirname(relative);
                     const displayDir = dirName === "." ? "root" : dirName;
 
+                    // 파일 이름만 추출
+                    const fileName = path.basename(relative);
+
                     results.push({
-                        label: relativePath,
+                        label: fileName, // 파일 이름만 표시
                         labelDetails: {
                             //detail: displayDir, // 라벨 바로 옆에 표시
-                            description: displayDir, // 더 오른쪽에 표시 (선택사항)
+                            description: displayDir, // 디렉터리 정보는 오른쪽에 표시
                         },
                         kind: CompletionItemKind.File,
                         // 타입 정보
@@ -266,20 +267,21 @@ function findMatchingFiles(prefix, currentDocumentUri) {
                         documentation: {
                             kind: MarkupKind.Markdown,
                             value: fileInfo.summary
-                                ? `**${fileInfo.title || relative}**\n\n${
+                                ? `**${fileInfo.title || fileName}**\n\n${
                                       fileInfo.summary
                                   }`
-                                : `**${fileInfo.title || relative}**`,
+                                : `**${fileInfo.title || fileName}**`,
                         },
                         // 정렬을 위한 sortText (옵션)
                         sortText: relativePath.toLowerCase(),
-                        // 실제 삽입될 텍스트
+                        // 실제 삽입될 텍스트는 상대 경로로 유지
                         insertText: relativePath,
                     });
                 }
             }
         }
     }
+
     walk(wikiRoot);
     return results;
 }
