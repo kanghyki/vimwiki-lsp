@@ -10,6 +10,12 @@ const { TextDocument } = require("vscode-languageserver-textdocument");
 const fs = require("fs");
 const path = require("path");
 
+const logFile = "/tmp/wiki-lsp.log";
+function log(...args) {
+    const msg = `[${new Date().toISOString()}] ${args.map(String).join(" ")}\n`;
+    fs.appendFileSync(logFile, msg);
+}
+
 const connection = createConnection(process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 let wikiRoot = "";
@@ -52,6 +58,7 @@ function parseFrontmatter(content) {
 
 // hover용 파일 정보 가져오기 (상대 경로 처리)
 function getWikiFileInfoForHover(wikiLink, currentDir) {
+    //log(`Processing wikiLink: ${wikiLink}, currentDir: ${currentDir}`);
     try {
         let targetPath;
 
@@ -60,9 +67,14 @@ function getWikiFileInfoForHover(wikiLink, currentDir) {
             // 상대 경로: 현재 디렉터리 기준으로 해석
             targetPath = path.resolve(currentDir, wikiLink + ".md");
         } else {
+            if (!wikiRoot) {
+                log("wikiRoot is not defined");
+                return null;
+            }
             // 절대 경로: wikiRoot 기준으로 해석
             targetPath = path.join(wikiRoot, wikiLink + ".md");
         }
+        //log(`Target path: ${targetPath}`);
 
         // 파일 존재 확인
         if (!fs.existsSync(targetPath)) {
@@ -70,8 +82,9 @@ function getWikiFileInfoForHover(wikiLink, currentDir) {
             const foundPath = findExactFile(wikiLink);
             if (foundPath) {
                 targetPath = foundPath;
+                //log(`Found alternative path: ${targetPath}`);
             } else {
-                console.log(`File not found: ${wikiLink}`);
+                log(`File not found: ${wikiLink}`);
                 return null;
             }
         }
@@ -90,7 +103,7 @@ function getWikiFileInfoForHover(wikiLink, currentDir) {
             updated: frontmatter.updated,
         };
     } catch (error) {
-        console.error(`Error reading file for hover ${wikiLink}:`, error);
+        log(`Error reading file for hover ${wikiLink}:`, error);
         return null;
     }
 }
@@ -120,7 +133,7 @@ function findExactFile(targetPath) {
                 }
             }
         } catch (error) {
-            console.error(`Error walking directory ${dir}:`, error);
+            log(`Error walking directory ${dir}:`, error);
         }
         return null;
     }
@@ -197,7 +210,7 @@ connection.onHover(({ textDocument, position }) => {
             },
         };
     } catch (error) {
-        console.error("Hover error:", error);
+        log("Hover error:", error);
         return {
             contents: {
                 kind: MarkupKind.Markdown,
@@ -242,8 +255,14 @@ function findMatchingFiles(prefix, currentDocumentUri) {
 
                     results.push({
                         label: relativePath,
+                        labelDetails: {
+                            //detail: displayDir, // 라벨 바로 옆에 표시
+                            description: displayDir, // 더 오른쪽에 표시 (선택사항)
+                        },
                         kind: CompletionItemKind.File,
-                        detail: displayDir, // 디렉터리만 간단히 표시
+                        // 타입 정보
+                        detail: displayDir,
+                        // 상세 설명
                         documentation: {
                             kind: MarkupKind.Markdown,
                             value: fileInfo.summary
@@ -280,7 +299,7 @@ function getFileInfoForCompletion(fullPath) {
             summary: frontmatter.summary || null,
         };
     } catch (error) {
-        console.error(`Error reading file for completion ${fullPath}:`, error);
+        log(`Error reading file for completion ${fullPath}:`, error);
         return { title: null, summary: null };
     }
 }
