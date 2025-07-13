@@ -63,6 +63,11 @@ let g:vimwiki_list = [
 * This server is designed to work with `.md`-based VimWiki setups.
 * It is compatible with diary entries and custom wiki paths.
 
+## 🖼️ ScreenShot
+
+<img width="410" height="276" alt="Screenshot 2025-07-13 at 11 57 34" src="https://github.com/user-attachments/assets/75505ec8-78ad-4227-8d38-5ac59deee421" />
+<img width="293" height="187" alt="Screenshot 2025-07-13 at 11 57 47" src="https://github.com/user-attachments/assets/b7f639a9-0cf3-4c5e-8903-606650744554" />
+
 ---
 
 ## 📄 License
